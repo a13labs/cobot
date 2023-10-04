@@ -22,9 +22,9 @@ THE SOFTWARE.
 package main
 
 import (
-	"github.com/a13labs/infrabot/cli"
-	_ "github.com/a13labs/infrabot/cli/console"
-	_ "github.com/a13labs/infrabot/cli/telegram"
+	"github.com/a13labs/cobot/cli"
+	_ "github.com/a13labs/cobot/cli/console"
+	_ "github.com/a13labs/cobot/cli/telegram"
 )
 
 func main() {

@@ -5,21 +5,25 @@ agent:
   allow_privileged: true
 
 actions:
-  - action: wake up
-    plugin: shell
+  - description: wake up a remote computer
+    name: wake_up
     args:
       - computer
     exec:
-      command: wakeonlan ${kb:computer.mac}
-      privileged: false
+      plugin: shell
+      parameters:
+        command: wakeonlan ${kb:computer.mac}
+        privileged: false
 
-  - action: restart service
-    plugin: shell
+  - description: restart a local service
+    name: restart_service
     args:
       - service
     exec:
-      command: launchctl kickstart -k ${service.name}
-      privileged: true
+      plugin: shell
+      parameters:
+        command: launchctl kickstart -k ${service.name}
+        privileged: true
 
 knowlegde_base:
   computer:

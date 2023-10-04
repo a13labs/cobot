@@ -28,7 +28,7 @@ import (
 )
 
 var RootCmd = &cobra.Command{
-	Use:   "infrabot",
+	Use:   "cobot",
 	Short: "Run actions on a server/machine",
 	Long: `This tool allows you to run predefined actions on a machine. Commands
 	can be sent from the following locations:

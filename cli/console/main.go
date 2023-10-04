@@ -22,12 +22,13 @@ THE SOFTWARE.
 package console
 
 import (
+	"fmt"
 	"log"
 	"os"
 
-	"github.com/a13labs/infrabot/cli"
-	"github.com/a13labs/infrabot/internal/agent"
-	"github.com/a13labs/infrabot/internal/consoleBot"
+	"github.com/a13labs/cobot/cli"
+	"github.com/a13labs/cobot/internal/agent"
+	"github.com/a13labs/cobot/internal/consoleBot"
 	"github.com/spf13/cobra"
 )
 
@@ -53,7 +54,10 @@ var consoleCmd = &cobra.Command{
 			log.SetOutput(logFile)
 		}
 
-		agent.Init(configfile)
+		if err := agent.Init(configfile); err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
 
 		if agentName != "" {
 			agent.OverrideAgentName(agentName)

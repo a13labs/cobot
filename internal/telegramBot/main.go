@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/a13labs/infrabot/internal/agent"
+	"github.com/a13labs/cobot/internal/agent"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 

@@ -27,9 +27,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/a13labs/infrabot/cli"
-	"github.com/a13labs/infrabot/internal/agent"
-	"github.com/a13labs/infrabot/internal/telegramBot"
+	"github.com/a13labs/cobot/cli"
+	"github.com/a13labs/cobot/internal/agent"
+	"github.com/a13labs/cobot/internal/telegramBot"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +57,10 @@ var telegramCmd = &cobra.Command{
 			log.SetOutput(logFile)
 		}
 
-		agent.Init(configfile)
+		if err := agent.Init(configfile); err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
 
 		if agent.GetAgentName() == "" && agentName == "" {
 			value, exist := os.LookupEnv("BOT_AGENT_NAME")

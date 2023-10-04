@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/a13labs/infrabot/internal/agent"
+	"github.com/a13labs/cobot/internal/agent"
 )
 
 // ForEachInput calls the given callback function for each line of input.

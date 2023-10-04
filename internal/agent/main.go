@@ -12,24 +12,29 @@ import (
 	"gonum.org/v1/gonum/floats"
 )
 
-type agentConfig struct {
+type agentDef struct {
 	Name            string `yaml:"name"`
 	AllowReboot     bool   `yaml:"allow_reboot"`
 	AllowPrivileged bool   `yaml:"allow_privileged"`
 	Language        string `yaml:"language,omitempty"`
 }
 
+type execDef struct {
+	Plugin     string                 `yaml:"plugin,omitempty"`
+	Parameters map[string]interface{} `yaml:"parameters"`
+}
+
 type actionDef struct {
 	Description string   `yaml:"description"`
 	Name        string   `yaml:"name"`
 	Args        []string `yaml:"args,omitempty"`
-	Plugin      string   `yaml:"plugin,omitempty"`
-	Script      string   `yaml:"exec,omitempty"`
+	Exec        execDef  `yaml:"exec,omitempty"`
 }
 
 type configFile struct {
-	Agent   agentConfig `yaml:"agent"`
-	Actions []actionDef `yaml:"actions"`
+	Agent         agentDef               `yaml:"agent"`
+	Actions       []actionDef            `yaml:"actions"`
+	KnowledgeBase map[string]interface{} `yaml:"knowlegde_base"`
 }
 
 type rankedAction struct {
@@ -40,6 +45,21 @@ type rankedAction struct {
 var agentCfg configFile
 var agentLoaded = false
 var minimumScore = 0.6
+
+func Init(file string) error {
+	// Load the YAML file
+	yamlFile, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("error reading file '%s'", file)
+	}
+
+	if err := yaml.Unmarshal(yamlFile, &agentCfg); err != nil {
+		return fmt.Errorf("error parsing agent configuration file '%s'", file)
+	}
+
+	agentLoaded = true
+	return nil
+}
 
 func RunAction(userInput string) (string, error) {
 
@@ -65,21 +85,6 @@ func RunAction(userInput string) (string, error) {
 
 	action = actions[0].Action
 	return fmt.Sprintf("Run action '%s'.\n", action.Name), nil
-}
-
-func Init(file string) error {
-	// Load the YAML file
-	yamlFile, err := os.ReadFile(file)
-	if err != nil {
-		return fmt.Errorf("error reading file '%s'", file)
-	}
-
-	if err := yaml.Unmarshal(yamlFile, &agentCfg); err != nil {
-		return fmt.Errorf("error parsing agent configuration file '%s'", file)
-	}
-
-	agentLoaded = true
-	return nil
 }
 
 func GetAgentName() string {
@@ -125,13 +130,17 @@ func getAction(userInput string) (actionDef, error) {
 		return actionDef{}, errors.New("not loaded")
 	}
 
-	for _, action := range agentCfg.Actions {
+	tokens := strings.Split(userInput, " ")
 
-		if action.Name != userInput {
-			continue
+	if len(tokens) > 0 {
+		for _, action := range agentCfg.Actions {
+
+			if action.Name != tokens[0] {
+				continue
+			}
+
+			return action, nil
 		}
-
-		return action, nil
 	}
 
 	return actionDef{}, fmt.Errorf("action '%s' not found", userInput)

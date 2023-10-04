@@ -1,4 +1,4 @@
-module github.com/a13labs/infrabot
+module github.com/a13labs/cobot
 
 go 1.21.0
 
