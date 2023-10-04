@@ -1,0 +1,29 @@
+agent:
+  name: macmini
+  language: english
+  allow_reboot: false
+  allow_privileged: true
+
+actions:
+  - action: wake up
+    plugin: shell
+    args:
+      - computer
+    exec:
+      command: wakeonlan ${kb:computer.mac}
+      privileged: false
+
+  - action: restart service
+    plugin: shell
+    args:
+      - service
+    exec:
+      command: launchctl kickstart -k ${service.name}
+      privileged: true
+
+knowlegde_base:
+  computer:
+    fedora:
+      mac: 00:68:EB:A7:75:54
+
+  service: {}
