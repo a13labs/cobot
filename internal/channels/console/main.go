@@ -1,4 +1,4 @@
-package consoleBot
+package consoleChannel
 
 import (
 	"bufio"

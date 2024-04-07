@@ -1,0 +1,9 @@
+description: restart a local service
+name: restart_service
+args:
+  - service
+exec:
+  plugin: shell
+  parameters:
+  command: launchctl kickstart -k ${service.name}
+  privileged: true

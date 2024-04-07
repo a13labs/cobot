@@ -1,0 +1,9 @@
+description: wake up a remote computer
+name: wake_up
+args:
+  - computer
+exec:
+  plugin: shell
+  parameters:
+    command: wakeonlan ${kb:computer.mac}
+    privileged: false

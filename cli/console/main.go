@@ -23,21 +23,18 @@ package console
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/a13labs/cobot/cli"
 	"github.com/a13labs/cobot/internal/agent"
-	"github.com/a13labs/cobot/internal/consoleBot"
+	consoleChannel "github.com/a13labs/cobot/internal/channels/console"
 	"github.com/spf13/cobra"
 )
 
-var configfile string
 var logFile string
-
-var agentName string
-var agentLanguage string
+var language string
 var minimumScore float64
+var storagePath string
 
 // telegramCmd represents the list command
 var consoleCmd = &cobra.Command{
@@ -45,42 +42,38 @@ var consoleCmd = &cobra.Command{
 	Short: "Recieve input from user argument",
 	Long:  `Recieve all commands from argument.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if logFile != "" {
-			logFile, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-			if err != nil {
-				log.Fatalf("Error opening log file: %v", err)
-			}
-			defer logFile.Close()
-			log.SetOutput(logFile)
+
+		agentArgs := &agent.AgentStartArgs{
+			StoragePath:  storagePath,
+			LogFile:      logFile,
+			Language:     language,
+			MinimumScore: minimumScore,
 		}
 
-		if err := agent.Init(configfile); err != nil {
+		if err := agent.Init(agentArgs); err != nil {
 			fmt.Println(err.Error())
 			os.Exit(1)
 		}
 
-		if agentName != "" {
-			agent.OverrideAgentName(agentName)
-		}
-
-		if agentLanguage != "" {
-			agent.OverrideAgentLanguage(agentLanguage)
-		}
-
-		if minimumScore > 0 {
-			agent.OverrideMinimumScore(minimumScore)
-		}
-
-		consoleBot.Start()
+		consoleChannel.Start()
 		os.Exit(0)
 	},
 }
 
 func init() {
+	// Current working directory
+	currDir, err := os.Getwd()
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	// Set defautl storage path
+	defaultPath := currDir + "/.data"
+
 	cli.RootCmd.AddCommand(consoleCmd)
-	consoleCmd.Flags().StringVarP(&configfile, "definitions", "d", "agent.yaml", "Agent definiton file")
+	consoleCmd.Flags().StringVarP(&storagePath, "storage", "d", defaultPath, "Database path")
 	consoleCmd.Flags().StringVarP(&logFile, "log", "l", "", "Log file")
-	consoleCmd.Flags().StringVarP(&agentName, "agent", "a", "", "Agent name")
-	consoleCmd.Flags().StringVarP(&agentLanguage, "language", "g", "", "Language")
-	consoleCmd.Flags().Float64VarP(&minimumScore, "score", "r", 0.0, "Similarity minimum")
+	consoleCmd.Flags().StringVarP(&language, "language", "g", "english", "Language")
+	consoleCmd.Flags().Float64VarP(&minimumScore, "score", "r", 0.5, "Similarity minimum")
 }

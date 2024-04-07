@@ -1,0 +1,8 @@
+agent:
+  name: macmini
+  allow_reboot: false
+  allow_privileged: true
+
+actions:
+  - wake_up
+  - restart_service
