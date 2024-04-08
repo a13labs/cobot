@@ -25,7 +25,7 @@ func TestBinaryFileStream(t *testing.T) {
 
 	// Test WriteString and ReadString
 	testString := "Hello, World!"
-	err = bfs.WriteString(testString)
+	_, err = bfs.WriteString(testString)
 	if err != nil {
 		t.Fatal(err)
 	}
