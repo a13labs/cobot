@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/db"
+	"github.com/a13labs/cobot/internal/nlp"
 	"github.com/go-yaml/yaml"
 )
 
@@ -27,14 +29,16 @@ type RankedAction struct {
 }
 
 type ActionDB struct {
-	Actions    algo.StringList
-	Driver     *Storage
-	Vocabulary *algo.Vocabulary
-	VectorDB   *algo.VectorDB
-	Language   string
+	LLMClient   *nlp.LLMClient
+	Actions     map[string]Action
+	ActionNames algo.StringList
+	Driver      *Storage
+	Vocabulary  *nlp.Vocabulary
+	VectorDB    *db.VectorDB
+	Language    string
 }
 
-func NewActionDB(actions algo.StringList, storage *Storage, language string) (*ActionDB, error) {
+func NewActionDB(actions algo.StringList, storage *Storage, llmClient *nlp.LLMClient, language string) (*ActionDB, error) {
 
 	_, err := storage.Stat("actions")
 	if err != nil {
@@ -42,36 +46,51 @@ func NewActionDB(actions algo.StringList, storage *Storage, language string) (*A
 		logger.Info("Created actions folder, this folder should contain action files. Agent will start with an empty actions list.")
 	}
 
-	availableActions := algo.StringList{}
+	availableActions := make(map[string]Action)
+	actionNames := algo.StringList{}
 	for _, action := range actions {
 		_, err := storage.Stat("actions/" + action + ".yaml")
 		if err != nil {
 			logger.Error("Action definition not found: " + action + ".yaml, skipping")
 			continue
 		}
-		availableActions = append(availableActions, action)
+		data, err := storage.ReadFile("actions/" + action + ".yaml")
+		if err != nil {
+			logger.Error("Error reading action file: " + action + ".yaml, skipping")
+			continue
+		}
+		var a Action
+		if err := yaml.Unmarshal(data, &a); err != nil {
+			logger.Error("Error parsing action file: " + action + ".yaml, skipping")
+			continue
+		}
+
+		availableActions[action] = a
+		actionNames = append(actionNames, action)
 	}
 
 	return &ActionDB{
-		Actions:  availableActions,
-		Driver:   storage,
-		Language: language,
+		Actions:     availableActions,
+		ActionNames: actionNames,
+		Driver:      storage,
+		Language:    language,
+		LLMClient:   llmClient,
 	}, nil
 }
 
-func (db *ActionDB) GetActions() algo.StringList {
-	return db.Actions
+func (adb *ActionDB) GetActions() map[string]Action {
+	return adb.Actions
 }
 
-func (db *ActionDB) GetAction(actionName string) (Action, error) {
+func (adb *ActionDB) GetAction(actionName string) (Action, error) {
 
-	_, err := db.Driver.Stat("actions/" + actionName + ".yaml")
+	_, err := adb.Driver.Stat("actions/" + actionName + ".yaml")
 
 	if err != nil {
 		return Action{}, errors.New("action not found")
 	}
 
-	actionFile, err := db.Driver.ReadFile("actions/" + actionName + ".yaml")
+	actionFile, err := adb.Driver.ReadFile("actions/" + actionName + ".yaml")
 	if err != nil {
 		return Action{}, errors.New("error reading action file")
 	}
@@ -84,93 +103,34 @@ func (db *ActionDB) GetAction(actionName string) (Action, error) {
 	return action, nil
 }
 
-func (db *ActionDB) AddAction(action Action, overwrite bool) error {
-
-	_, err := db.Driver.Stat("actions/" + action.Name + ".yaml")
-
-	if err == nil && !overwrite {
-		return errors.New("action already exists")
-	}
-
-	actionFile, err := yaml.Marshal(action)
-	if err != nil {
-		return errors.New("error marshalling action")
-	}
-
-	err = db.Driver.WriteFile("actions/"+action.Name+".yaml", actionFile, 0644)
-	if err != nil {
-		return errors.New("error writing action file")
-	}
-
-	db.Actions.Add(action.Name)
-
-	return nil
-}
-
-func (db *ActionDB) RemoveAction(actionName string) error {
-
-	_, err := db.Driver.Stat("actions/" + actionName + ".yaml")
-	if err != nil {
-		return errors.New("action not found")
-	}
-
-	err = db.Driver.Remove("actions/" + actionName + ".yaml")
-	if err != nil {
-		return errors.New("error removing action file")
-	}
-
-	db.Actions.Remove(actionName)
-
-	return nil
-}
-
-func (db *ActionDB) UpdateAction(action Action) error {
-
-	_, err := db.Driver.Stat("actions/" + action.Name + ".yaml")
-	if err != nil {
-		return errors.New("action not found")
-	}
-
-	actionFile, err := yaml.Marshal(action)
-	if err != nil {
-		return errors.New("error marshalling action")
-	}
-
-	err = db.Driver.WriteFile("actions/"+action.Name+".yaml", actionFile, 0644)
-	if err != nil {
-		return errors.New("error writing action file")
-	}
-
-	return nil
-}
-
-func (db *ActionDB) QueryDescription(description string, minimumScore float64) []string {
+func (adb *ActionDB) QueryDescription(description string, minimumScore float64) []string {
 
 	// Create a query vector from the description
 	description = strings.ToLower(description)
-	tokens := db.Vocabulary.Tokenize(description)
-	query := db.Vocabulary.CalculateTFIDFVector(tokens)
-	indexes := db.VectorDB.GetSimilarEntries(query, minimumScore)
+	tokens := adb.Vocabulary.Tokenize(description)
+	query := adb.Vocabulary.CalculateTFIDFVector(tokens)
+	indexes := adb.VectorDB.GetSimilarEntries(query, minimumScore)
 
 	// Get the action names from the filtered indexes
 	actions := make([]string, len(indexes))
 	for i, index := range indexes {
-		actions[i] = db.Actions[index]
+		actionName := adb.ActionNames[index]
+		actions[i] = adb.Actions[actionName].Description
 	}
 	return actions
 }
 
-func (db *ActionDB) CacheInit() error {
+func (adb *ActionDB) CacheInit() error {
 
 	// Check if the cache folder exists
-	_, err := db.Driver.Stat("local/cache")
+	_, err := adb.Driver.Stat("local/cache")
 	if err != nil {
 		logger.Info("Creating cache folder")
-		db.Driver.Mkdir("local/cache", 0755)
+		adb.Driver.Mkdir("local/cache", 0755)
 	}
 
 	// Get the storage version to check if the cache already for the current version
-	dbVersion, err := db.Driver.GetVersion()
+	dbVersion, err := adb.Driver.GetVersion()
 	if err != nil {
 		logger.Error("Error getting storage version")
 		return errors.New("error getting storage version")
@@ -180,16 +140,16 @@ func (db *ActionDB) CacheInit() error {
 
 	// Check if the cache folder exists if it does read data from it
 	// otherwise create it
-	_, err = db.Driver.Stat(indexFolder)
+	_, err = adb.Driver.Stat(indexFolder)
 	if err != nil {
-		db.Driver.Mkdir(indexFolder, 0755)
+		adb.Driver.Mkdir(indexFolder, 0755)
 	}
 
 	// If storage has local changes, check if the cache is still valid
 	// by comparing the checksum of the action files
-	if db.Driver.HasLocalChanges() {
+	if adb.Driver.HasLocalChanges() {
 
-		changedFiles, err := db.Driver.Status("actions/*.yaml")
+		changedFiles, err := adb.Driver.Status("actions/*.yaml")
 
 		if err != nil {
 			logger.Error("Error getting local changed actions files")
@@ -199,19 +159,19 @@ func (db *ActionDB) CacheInit() error {
 		changedActions := algo.StringList{}
 		for _, file := range changedFiles {
 			action := strings.TrimSuffix(strings.TrimPrefix(file, "actions/"), ".yaml")
-			if db.Actions.Contains(action) {
+			if adb.ActionNames.Contains(action) {
 				changedActions = append(changedActions, action)
 			}
 		}
 
-		currentChecksum := db.calculateChecksum(changedActions)
+		currentChecksum := adb.calculateChecksum(changedActions)
 		checksumFile := indexFolder + "/actions.checksum"
 
-		_, err = db.Driver.Stat(checksumFile)
+		_, err = adb.Driver.Stat(checksumFile)
 		invalidateCache := false
 		if err != nil {
 			logger.Info("Creating checksum file")
-			data, err := db.Driver.OpenFileStream(checksumFile)
+			data, err := adb.Driver.OpenFileStream(checksumFile)
 			if err != nil {
 				logger.Error("Error creating checksum file")
 				return errors.New("error creating checksum file")
@@ -221,7 +181,7 @@ func (db *ActionDB) CacheInit() error {
 			invalidateCache = true
 		} else {
 			logger.Info("Loading cached checksum")
-			data, err := db.Driver.OpenFileStream(checksumFile)
+			data, err := adb.Driver.OpenFileStream(checksumFile)
 			if err != nil {
 				logger.Error("Error reading checksum file")
 				return errors.New("error reading checksum file")
@@ -240,7 +200,7 @@ func (db *ActionDB) CacheInit() error {
 		if invalidateCache {
 			logger.Info("Local changes detected, invalidating cache")
 			// Remove the cache folder and create a new one
-			err = db.Driver.RemoveAll("local/cache/" + dbVersion + "/" + db.Language + ".vocabulary")
+			err = adb.Driver.RemoveAll("local/cache/" + dbVersion + "/" + adb.Language + ".vocabulary")
 			if err != nil {
 				logger.Error("Error removing vocabulary cache file")
 			}
@@ -248,32 +208,28 @@ func (db *ActionDB) CacheInit() error {
 	}
 
 	// Create the Vocabulary and VectorDB objects
-	vocabularyFilename := indexFolder + "/" + db.Language + ".vocabulary"
-	_, err = db.Driver.Stat(vocabularyFilename)
+	vocabularyFilename := indexFolder + "/" + adb.Language + ".vocabulary"
+	_, err = adb.Driver.Stat(vocabularyFilename)
 	if err != nil {
 
 		logger.Info("Creating vocabulary from action files")
-		descriptions := make(algo.StringList, len(db.Actions))
-		for i := 0; i < len(db.Actions); i++ {
-			data, err := db.GetAction(db.Actions[i])
-			if err != nil {
-				logger.Error("Error reading action file: " + db.Actions[i] + ".yaml")
-				return errors.New("error reading action file")
-			}
-			descriptions[i] = data.Description
+		descriptions := make(algo.StringList, len(adb.Actions))
+		for i := 0; i < len(adb.ActionNames); i++ {
+			actionName := adb.ActionNames[i]
+			descriptions[i] = adb.Actions[actionName].Description
 		}
 
-		db.Vocabulary = algo.NewVocabulary(descriptions, db.Language)
-		db.VectorDB = algo.NewVectorDB(len(db.Vocabulary.Terms))
+		adb.Vocabulary = nlp.NewVocabulary(descriptions, adb.Language)
+		adb.VectorDB = db.NewVectorDB(len(adb.Vocabulary.Terms))
 
 		// Calculate the TF-IDF vectors for each entry in the dataset
-		db.VectorDB.DataPoints = make([]algo.DataPoint, len(db.Actions))
-		for i := 0; i < len(db.Actions); i++ {
-			tokens := db.Vocabulary.Tokenize(strings.ToLower(descriptions[i]))
-			db.VectorDB.DataPoints[i] = algo.DataPoint{ID: i, Data: db.Vocabulary.CalculateTFIDFVector(tokens)}
+		adb.VectorDB.DataPoints = make([]db.DataPoint, len(adb.Actions))
+		for i := 0; i < len(adb.Actions); i++ {
+			tokens := adb.Vocabulary.Tokenize(strings.ToLower(descriptions[i]))
+			adb.VectorDB.DataPoints[i] = db.DataPoint{ID: i, Data: adb.Vocabulary.CalculateTFIDFVector(tokens)}
 		}
 
-		dbFile, err := db.Driver.OpenFileStream(vocabularyFilename)
+		dbFile, err := adb.Driver.OpenFileStream(vocabularyFilename)
 		if err != nil {
 			logger.Error("Error creating vocabulary file")
 			return errors.New("error creating vocabulary file")
@@ -281,13 +237,13 @@ func (db *ActionDB) CacheInit() error {
 
 		defer dbFile.Close()
 
-		err = db.Vocabulary.SaveToBinaryStream(dbFile)
+		err = adb.Vocabulary.SaveToBinaryStream(dbFile)
 		if err != nil {
 			logger.Error("Error saving vocabulary file")
 			return errors.New("error saving vocabulary file")
 		}
 
-		err = db.VectorDB.SaveToBinaryStream(dbFile)
+		err = adb.VectorDB.SaveToBinaryStream(dbFile)
 		if err != nil {
 			logger.Error("Error saving vocabulary file")
 			return errors.New("error saving vocabulary file")
@@ -296,7 +252,7 @@ func (db *ActionDB) CacheInit() error {
 	} else {
 		logger.Info("Loading cached vocabulary from cache folder")
 		// Load cached vocabulary file in the binary format
-		dbFile, err := db.Driver.OpenFileStream(vocabularyFilename)
+		dbFile, err := adb.Driver.OpenFileStream(vocabularyFilename)
 		if err != nil {
 			logger.Error("Error creating vocabulary file")
 			return errors.New("error creating vocabulary file")
@@ -304,14 +260,14 @@ func (db *ActionDB) CacheInit() error {
 
 		defer dbFile.Close()
 
-		db.Vocabulary = algo.NewVocabularyFromBinaryStream(dbFile, db.Language)
-		db.VectorDB = algo.NewVectorDBFromBinaryStream(dbFile)
+		adb.Vocabulary = nlp.NewVocabularyFromBinaryStream(dbFile, adb.Language)
+		adb.VectorDB = db.NewVectorDBFromBinaryStream(dbFile)
 	}
 
 	return nil
 }
 
-func (db *ActionDB) calculateChecksum(actionNames algo.StringList) int64 {
+func (adb *ActionDB) calculateChecksum(actionNames algo.StringList) int64 {
 
 	logger := GetLogger()
 
@@ -320,7 +276,7 @@ func (db *ActionDB) calculateChecksum(actionNames algo.StringList) int64 {
 
 	// Calculate the checksum of the action files
 	for _, action := range actionNames {
-		fileData, err := db.Driver.ReadFile("actions/" + action + ".yaml")
+		fileData, err := adb.Driver.ReadFile("actions/" + action + ".yaml")
 		if err != nil {
 			logger.Error("Error reading action file: " + action + ".yaml")
 			return 0

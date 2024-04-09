@@ -1,11 +1,11 @@
-package algo_test
+package io_test
 
 import (
-	"io"
+	sio "io"
 	"os"
 	"testing"
 
-	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/io"
 )
 
 func TestBinaryFileStream(t *testing.T) {
@@ -17,7 +17,7 @@ func TestBinaryFileStream(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	// Create a new BinaryFileStream
-	bfs, err := algo.NewBinaryFileStream(f.Name())
+	bfs, err := io.NewBinaryFileStream(f.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestBinaryFileStream(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = bfs.Seek(0, io.SeekStart)
+	_, err = bfs.Seek(0, sio.SeekStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestBinaryFileStream(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = bfs.Seek(-8, io.SeekEnd)
+	_, err = bfs.Seek(-8, sio.SeekEnd)
 	if err != nil {
 		t.Fatal(err)
 	}

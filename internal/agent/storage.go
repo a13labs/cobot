@@ -43,6 +43,7 @@ import (
 	"os"
 
 	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/io"
 	"gopkg.in/src-d/go-git.v4"
 )
 
@@ -127,7 +128,7 @@ func (s *Storage) WriteFile(path string, data []byte, perm fs.FileMode) error {
 	return nil
 }
 
-func (s *Storage) OpenFileStream(path string) (*algo.BinaryFileStream, error) {
+func (s *Storage) OpenFileStream(path string) (*io.BinaryFileStream, error) {
 
 	logger := GetLogger()
 
@@ -138,7 +139,7 @@ func (s *Storage) OpenFileStream(path string) (*algo.BinaryFileStream, error) {
 	}
 
 	// Create a new binary file stream
-	stream, err := algo.NewBinaryFileStream(s.localPath + "/" + path)
+	stream, err := io.NewBinaryFileStream(s.localPath + "/" + path)
 	if err != nil {
 		logger.Error("Error creating binary file stream")
 		return nil, err

@@ -1,9 +1,11 @@
-package algo
+package nlp
 
 import (
 	"sort"
 	"strings"
 
+	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/io"
 	"github.com/kljensen/snowball"
 )
 
@@ -17,7 +19,7 @@ type Vocabulary struct {
 	Language string
 }
 
-func NewVocabulary(docs StringList, language string) *Vocabulary {
+func NewVocabulary(docs algo.StringList, language string) *Vocabulary {
 
 	v := &Vocabulary{
 		Language: language,
@@ -34,7 +36,7 @@ func NewVocabulary(docs StringList, language string) *Vocabulary {
 	}
 
 	// Order the vocabulary alphabetically
-	terms := make(StringList, 0, len(vocabulary))
+	terms := make(algo.StringList, 0, len(vocabulary))
 	for key := range vocabulary {
 		terms = append(terms, key)
 	}
@@ -60,7 +62,7 @@ func NewVocabulary(docs StringList, language string) *Vocabulary {
 	return v
 }
 
-func NewVocabularyFromBinaryStream(s *BinaryFileStream, language string) *Vocabulary {
+func NewVocabularyFromBinaryStream(s *io.BinaryFileStream, language string) *Vocabulary {
 	v := &Vocabulary{
 		Language: language,
 		Terms:    []Term{},
@@ -120,7 +122,7 @@ func (v *Vocabulary) CalculateTFIDFVector(tokens []string) []float64 {
 	return vector
 }
 
-func (v *Vocabulary) SaveToBinaryStream(s *BinaryFileStream) error {
+func (v *Vocabulary) SaveToBinaryStream(s *io.BinaryFileStream) error {
 	// Write the number of terms to the file
 	err := s.WriteInt32(int32(len(v.Terms)))
 	if err != nil {

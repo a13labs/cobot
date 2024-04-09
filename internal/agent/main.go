@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/nlp"
 	"github.com/go-yaml/yaml"
 )
 
@@ -13,6 +14,9 @@ type AgentStartArgs struct {
 	LogFile      string
 	Language     string
 	MinimumScore float64
+	LLMHost      string
+	LLMPort      int
+	LLLMModel    string
 }
 
 var agentLoaded = false
@@ -22,6 +26,9 @@ var DefaultArgs = AgentStartArgs{
 	LogFile:      "",
 	Language:     "english",
 	MinimumScore: 0.5,
+	LLMHost:      "localhost",
+	LLMPort:      11434,
+	LLLMModel:    "mistral",
 }
 
 type agentDef struct {
@@ -38,8 +45,13 @@ type agentConfig struct {
 
 var agentStorage *Storage
 var agentActionDB *ActionDB
+var llmClient *nlp.LLMClient
+var llmAgent *LLMAgent
 var agentCfg agentConfig
 var userArgs AgentStartArgs = DefaultArgs
+var writerFunc func(string) error
+var inputChannel chan string
+var outputChannel chan string
 
 func Init(args *AgentStartArgs) error {
 
@@ -60,6 +72,15 @@ func Init(args *AgentStartArgs) error {
 	}
 	if userArgs.MinimumScore == 0 {
 		userArgs.MinimumScore = DefaultArgs.MinimumScore
+	}
+	if userArgs.LLMHost == "" {
+		userArgs.LLMHost = DefaultArgs.LLMHost
+	}
+	if userArgs.LLMPort == 0 {
+		userArgs.LLMPort = DefaultArgs.LLMPort
+	}
+	if userArgs.LLLMModel == "" {
+		userArgs.LLLMModel = DefaultArgs.LLLMModel
 	}
 
 	// Initialize the storage
@@ -114,10 +135,17 @@ func Init(args *AgentStartArgs) error {
 			logger.Error("Agent name is empty")
 			return errors.New("agent name is empty")
 		}
+
+	}
+
+	// Initialize the LLM client
+	llmClient = nlp.NewLLMClient(userArgs.LLMHost, userArgs.LLMPort, userArgs.LLLMModel)
+	if llmClient == nil {
+		return errors.New("error initializing LLM client")
 	}
 
 	// Initialize the action database
-	agentActionDB, err = NewActionDB(algo.StringList(agentCfg.Actions), agentStorage, userArgs.Language)
+	agentActionDB, err = NewActionDB(algo.StringList(agentCfg.Actions), agentStorage, llmClient, userArgs.Language)
 	if err != nil {
 		return errors.New("error initializing action database")
 	}
@@ -127,53 +155,113 @@ func Init(args *AgentStartArgs) error {
 		return errors.New("error building action database index")
 	}
 
+	writerFunc = func(msg string) error {
+		return nil
+	}
+
+	inputChannel = make(chan string)
+	outputChannel = make(chan string)
+
+	go processInput()
+	go processOutput()
+
+	llmAgent = NewLLMAgent(llmClient, agentCfg.Agent.Name)
+
 	agentLoaded = true
 	return nil
 }
 
-func RunAction(userInput string) (string, error) {
+func SetWriterFunc(f func(string) error) {
+	writerFunc = f
+}
 
-	if !agentLoaded {
-		return "", errors.New("agent not loaded")
+func processInput() {
+
+	for msg := range inputChannel {
+		if msg == "exit" {
+			break
+		}
+		process(msg)
 	}
 
-	actions := agentActionDB.QueryDescription(userInput, userArgs.MinimumScore)
+}
+
+func processOutput() {
+	for msg := range outputChannel {
+		if msg == "exit" {
+			break
+		}
+		writerFunc(msg)
+	}
+}
+
+func process(userInput string) {
+
+	actions, err := parseActions(userInput)
+	if err != nil {
+		logger.Error("Error parsing user input: %s", err)
+		return
+	}
 
 	if len(actions) == 0 {
-		return fmt.Sprintf("No match for user input: '%s'.", userInput), nil
+		Inform("No actions match the user input in the knowledge base. No action will be taken.")
+		return
 	}
 
 	for _, action := range actions {
-		logger.Info("Action: %s", action)
+		logger.Info("Action: %s", agentActionDB.ActionNames[action])
 	}
+}
 
-	return fmt.Sprintf("Found %d possible actions.", len(actions)), nil
+func DispatchInput(userInput string) {
+	inputChannel <- userInput
 }
 
 func GetAgentName() string {
-	if !agentLoaded {
-		return ""
-	}
-
 	return agentCfg.Agent.Name
 }
 
 func GetLanguage() string {
-	if !agentLoaded {
-		return ""
-	}
-
 	return userArgs.Language
 }
 
-func SayHello() string {
-	return fmt.Sprintf("Hello! Agent %s ready.", agentCfg.Agent.Name)
+func SayHello() {
+	msg, err := llmAgent.MessageRequest("Inform the user with your name and greet.")
+	if err != nil {
+		return
+	}
+	outputChannel <- msg
 }
 
-func SayGoodBye() string {
-	return fmt.Sprintf("Bye! Agent %s shutting down.", agentCfg.Agent.Name)
+func SayGoodBye() (string, error) {
+	msg, err := llmAgent.MessageRequest("Inform the user you are shutting down and say goodbye.")
+	if err != nil {
+		outputChannel <- "error interacting with LLM"
+	}
+	return msg, nil
 }
 
-func OverrideAgentName(name string) {
-	agentCfg.Agent.Name = name
+func Inform(text string) {
+	prompt := fmt.Sprintf("Inform the user of the following: '%s'", text)
+	msg, err := llmAgent.MessageRequest(prompt)
+	if err != nil {
+		outputChannel <- "error interacting with LLM"
+	}
+	outputChannel <- msg
+}
+
+func parseActions(prompt string) ([]int, error) {
+
+	availableActions := "Available actions:\n"
+	for i, name := range agentActionDB.ActionNames {
+		action := agentActionDB.Actions[name]
+		availableActions += fmt.Sprintf("- ID: %d, Description: '%s'\n", i, action.Description)
+	}
+	instr := fmt.Sprintf("Consider the following action list:\n%s\nUser Input: %s\nParse the user input, provide the ID of all actions that match. Provide empty list if no action match.", availableActions, prompt)
+
+	msg, err := llmAgent.IntListRequest(instr)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
 }

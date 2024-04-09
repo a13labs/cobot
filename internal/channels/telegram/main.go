@@ -1,7 +1,6 @@
 package telegramChannel
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -36,8 +35,14 @@ func Start(token string, chatId int64) {
 	signal.Notify(shutdownSignal, syscall.SIGQUIT)
 	signal.Notify(shutdownSignal, syscall.SIGINT)
 
-	msg := tgbotapi.NewMessage(chatId, agent.SayHello())
-	bot.Send(msg)
+	agent.SetWriterFunc(func(text string) error {
+		msg := tgbotapi.NewMessage(chatId, text)
+		bot.Send(msg)
+		return nil
+	})
+
+	// Send a welcome message
+	agent.SayHello()
 
 	// Listen for messages in the channel
 	for {
@@ -62,28 +67,22 @@ func Start(token string, chatId int64) {
 
 					if len(runes) > 0 {
 						targetAgent := string(runes[1:])
-						txt := "How can I help you?"
-
 						if targetAgent == agent.GetAgentName() {
-
 							if len(tokens) > 1 {
-
-								txt, err = agent.RunAction(userInput)
-
-								if err != nil {
-									txt = fmt.Sprintf("Error: %s", err.Error())
-								}
+								agent.DispatchInput(userInput)
 							}
-
-							msg := tgbotapi.NewMessage(update.Message.Chat.ID, txt)
-							msg.ReplyToMessageID = update.Message.MessageID
-							bot.Send(msg)
 						}
 					}
 				}
 			}
 		case <-shutdownSignal:
-			msg := tgbotapi.NewMessage(chatId, agent.SayGoodBye())
+			// Send a goodbye message
+			goodbyeMsg, err := agent.SayGoodBye()
+			if err != nil {
+				log.Fatal(err)
+				os.Exit(1)
+			}
+			msg := tgbotapi.NewMessage(chatId, goodbyeMsg)
 			bot.Send(msg)
 			return
 		}

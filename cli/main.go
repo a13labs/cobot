@@ -22,10 +22,20 @@ THE SOFTWARE.
 package cli
 
 import (
+	"fmt"
 	"os"
 
+	"github.com/a13labs/cobot/internal/agent"
 	"github.com/spf13/cobra"
 )
+
+var logFile string
+var language string
+var minimumScore float64
+var storagePath string
+var llmHost string
+var llmPort int
+var llmModel string
 
 var RootCmd = &cobra.Command{
 	Use:   "cobot",
@@ -37,12 +47,46 @@ var RootCmd = &cobra.Command{
 	`,
 }
 
-func Execute() {
-	err := RootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
-	}
+func Execute() error {
+	return RootCmd.Execute()
 }
 
 func init() {
+
+	cobra.OnInitialize(initAgent)
+
+	// Current working directory
+	currDir, err := os.Getwd()
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	// Set defautl storage path
+	defaultPath := currDir + "/.data"
+
+	RootCmd.PersistentFlags().StringVarP(&storagePath, "storage-path", "d", defaultPath, "Database path")
+	RootCmd.PersistentFlags().StringVarP(&logFile, "log-file", "l", "", "Log file")
+	RootCmd.PersistentFlags().StringVarP(&language, "language", "g", "english", "Language")
+	RootCmd.PersistentFlags().Float64VarP(&minimumScore, "minimum-score", "r", 0.5, "Similarity minimum")
+	RootCmd.PersistentFlags().StringVarP(&llmHost, "llm-host", "s", "localhost", "LLM host")
+	RootCmd.PersistentFlags().IntVarP(&llmPort, "llm-port", "p", 11434, "LLM port")
+	RootCmd.PersistentFlags().StringVarP(&llmModel, "llm-model", "m", "mistral", "LLM model")
+}
+
+func initAgent() {
+	agentArgs := &agent.AgentStartArgs{
+		StoragePath:  storagePath,
+		LogFile:      logFile,
+		Language:     language,
+		MinimumScore: minimumScore,
+		LLMHost:      llmHost,
+		LLMPort:      llmPort,
+		LLLMModel:    llmModel,
+	}
+
+	if err := agent.Init(agentArgs); err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
 }

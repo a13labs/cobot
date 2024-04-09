@@ -1,15 +1,10 @@
-package algo
+package db
 
 import (
-	"sort"
-
+	"github.com/a13labs/cobot/internal/algo"
+	"github.com/a13labs/cobot/internal/io"
 	"gonum.org/v1/gonum/floats"
 )
-
-type DataEntry struct {
-	ID    int
-	Label string
-}
 
 type DataPoint struct {
 	ID   int
@@ -18,27 +13,27 @@ type DataPoint struct {
 
 type VectorDB struct {
 	DataPoints []DataPoint
-	NumTerms   int
+	VectorSize int
 }
 
-func NewVectorDB(nTerms int) *VectorDB {
+func NewVectorDB(sz int) *VectorDB {
 
 	db := &VectorDB{
 		DataPoints: []DataPoint{},
-		NumTerms:   nTerms,
+		VectorSize: sz,
 	}
 
 	return db
 }
 
-func NewVectorDBFromBinaryStream(s *BinaryFileStream) *VectorDB {
+func NewVectorDBFromBinaryStream(s *io.BinaryFileStream) *VectorDB {
 
 	db := &VectorDB{
 		DataPoints: []DataPoint{},
 	}
 
-	// Read the number of actions from the file
-	numTerms, err := s.ReadInt32()
+	// Read the vector size and number of data points from the file
+	vectorSz, err := s.ReadInt32()
 	if err != nil {
 		return nil
 	}
@@ -54,8 +49,8 @@ func NewVectorDBFromBinaryStream(s *BinaryFileStream) *VectorDB {
 		if err != nil {
 			return nil
 		}
-		data := make([]float64, numTerms)
-		for j := 0; j < int(numTerms); j++ {
+		data := make([]float64, vectorSz)
+		for j := 0; j < int(vectorSz); j++ {
 			value, err := s.ReadFloat64()
 			if err != nil {
 				return nil
@@ -94,7 +89,7 @@ func (db *VectorDB) GetSimilarEntriesWithScores(query []float64, minimumScore fl
 	}
 
 	if sort {
-		return sortMapByValue(similarEntries)
+		return algo.SortMapByValue[int](similarEntries)
 	}
 
 	return similarEntries
@@ -104,18 +99,21 @@ func (db *VectorDB) GetDataPoint(id int) DataPoint {
 	return db.DataPoints[id]
 }
 
-func (db *VectorDB) SaveToBinaryStream(s *BinaryFileStream) error {
+func (db *VectorDB) SaveToBinaryStream(s *io.BinaryFileStream) error {
+
+	// Write the number of terms to the file
+	if err := s.WriteInt32(int32(db.VectorSize)); err != nil {
+		return err
+	}
 
 	// Write the number of data points to the file
 	if err := s.WriteInt32(int32(len(db.DataPoints))); err != nil {
 		return err
 	}
+
 	// Write the action vectors to the file
 	for _, v := range db.DataPoints {
 		if err := s.WriteInt32(int32(v.ID)); err != nil {
-			return err
-		}
-		if err := s.WriteInt32(int32(len(v.Data))); err != nil {
 			return err
 		}
 		for _, value := range v.Data {
@@ -137,24 +135,4 @@ func CosineSimilarity(vector1, vector2 []float64) float64 {
 		return 0
 	}
 	return dotProduct / (magnitude1 * magnitude2)
-}
-
-// Sort a map by its values in descending order
-func sortMapByValue(m map[int]float64) map[int]float64 {
-	type kv struct {
-		Key   int
-		Value float64
-	}
-	var sorted []kv
-	for k, v := range m {
-		sorted = append(sorted, kv{k, v})
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Value > sorted[j].Value
-	})
-	sortedMap := make(map[int]float64)
-	for _, kv := range sorted {
-		sortedMap[kv.Key] = kv.Value
-	}
-	return sortedMap
 }

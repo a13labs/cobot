@@ -1,4 +1,4 @@
-package algo
+package io
 
 import (
 	"bytes"

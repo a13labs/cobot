@@ -27,23 +27,21 @@ func forEachInput(r io.Reader, callback func(text string) error) error {
 	return nil
 }
 
-// StartBot initializes and starts the Telegram bot with a channel listener.
+// StartBot initializes and starts the bot with a channel listener.
 func Start() {
+
+	agent.SetWriterFunc(func(text string) error { fmt.Println(text); return nil })
+
 	fn := func(userInput string) error {
-		msg, err := agent.RunAction(userInput)
-		if err != nil {
-			return err
-		}
-		fmt.Println(msg)
+		agent.DispatchInput(userInput)
 		return nil
 	}
 
-	fmt.Println(agent.SayHello())
-	fmt.Println("To interact with me write your queries/actions. To quit just enter an empty line!")
+	agent.SayHello()
 	err := forEachInput(os.Stdin, fn)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
-	fmt.Println(agent.SayGoodBye())
+	agent.SayGoodBye()
 }

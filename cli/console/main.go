@@ -22,19 +22,12 @@ THE SOFTWARE.
 package console
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/a13labs/cobot/cli"
-	"github.com/a13labs/cobot/internal/agent"
 	consoleChannel "github.com/a13labs/cobot/internal/channels/console"
 	"github.com/spf13/cobra"
 )
-
-var logFile string
-var language string
-var minimumScore float64
-var storagePath string
 
 // telegramCmd represents the list command
 var consoleCmd = &cobra.Command{
@@ -43,37 +36,12 @@ var consoleCmd = &cobra.Command{
 	Long:  `Recieve all commands from argument.`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		agentArgs := &agent.AgentStartArgs{
-			StoragePath:  storagePath,
-			LogFile:      logFile,
-			Language:     language,
-			MinimumScore: minimumScore,
-		}
-
-		if err := agent.Init(agentArgs); err != nil {
-			fmt.Println(err.Error())
-			os.Exit(1)
-		}
-
 		consoleChannel.Start()
 		os.Exit(0)
 	},
 }
 
 func init() {
-	// Current working directory
-	currDir, err := os.Getwd()
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
-	// Set defautl storage path
-	defaultPath := currDir + "/.data"
 
 	cli.RootCmd.AddCommand(consoleCmd)
-	consoleCmd.Flags().StringVarP(&storagePath, "storage", "d", defaultPath, "Database path")
-	consoleCmd.Flags().StringVarP(&logFile, "log", "l", "", "Log file")
-	consoleCmd.Flags().StringVarP(&language, "language", "g", "english", "Language")
-	consoleCmd.Flags().Float64VarP(&minimumScore, "score", "r", 0.5, "Similarity minimum")
 }
