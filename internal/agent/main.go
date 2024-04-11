@@ -230,7 +230,7 @@ func (ctx *AgentCtx) GetAgentName() string {
 }
 
 func (ctx *AgentCtx) SayHello() {
-	prompt := fmt.Sprintf("Your name is '%s'.Inform the user you are ready to receive orders and greet him.", ctx.AgentCfg.Agent.Name)
+	prompt := fmt.Sprintf("Your name is '%s'.You are polite.Inform the user you are ready to receive orders and greet him.", ctx.AgentCfg.Agent.Name)
 	msg, err := generateAMessage(ctx, prompt)
 	if err != nil {
 		return
@@ -239,7 +239,7 @@ func (ctx *AgentCtx) SayHello() {
 }
 
 func (ctx *AgentCtx) SayGoodBye() (string, error) {
-	msg, err := generateAMessage(ctx, "Inform the user you are shutting down and say goodbye.")
+	msg, err := generateAMessage(ctx, "Your name is '%s'.You are polite.Inform the user you are shutting down and say goodbye.")
 	if err != nil {
 		ctx.OutputChannel <- "error interacting with LLM"
 	}
@@ -247,7 +247,7 @@ func (ctx *AgentCtx) SayGoodBye() (string, error) {
 }
 
 func (ctx *AgentCtx) Inform(text string) {
-	prompt := fmt.Sprintf("You are polite,inform the user,using your words,of the following event:'%s'.", text)
+	prompt := fmt.Sprintf("Your name is '%s'.You are polite,inform the user,using your words,of the following event:'%s'.", ctx.AgentCfg.Agent.Name, text)
 	msg, err := generateAMessage(ctx, prompt)
 	if err != nil {
 		ctx.OutputChannel <- "error interacting with LLM"
