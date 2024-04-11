@@ -51,6 +51,8 @@ func Execute() error {
 	return RootCmd.Execute()
 }
 
+var AgentCtx *agent.AgentCtx
+
 func init() {
 
 	cobra.OnInitialize(initAgent)
@@ -62,7 +64,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	// Set defautl storage path
+	// Set defaults storage path
 	defaultPath := currDir + "/.data"
 
 	RootCmd.PersistentFlags().StringVarP(&storagePath, "storage-path", "d", defaultPath, "Database path")
@@ -78,14 +80,14 @@ func initAgent() {
 	agentArgs := &agent.AgentStartArgs{
 		StoragePath:  storagePath,
 		LogFile:      logFile,
-		Language:     language,
 		MinimumScore: minimumScore,
 		LLMHost:      llmHost,
 		LLMPort:      llmPort,
-		LLLMModel:    llmModel,
+		LLMModel:     llmModel,
 	}
-
-	if err := agent.Init(agentArgs); err != nil {
+	var err error
+	AgentCtx, err = agent.NewAgentCtx(agentArgs)
+	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}

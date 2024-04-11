@@ -37,8 +37,8 @@ var telegramChatId int64
 // telegramCmd represents the list command
 var telegramCmd = &cobra.Command{
 	Use:   "telegram",
-	Short: "Recieve input from a telegram channel",
-	Long: `Recieve all commands from a telegram channel, make sure you
+	Short: "Receive input from a telegram channel",
+	Long: `Receive all commands from a telegram channel, make sure you
 	provide a valid telegram token and a chat id.`,
 	Run: func(cmd *cobra.Command, args []string) {
 
@@ -65,7 +65,7 @@ var telegramCmd = &cobra.Command{
 			telegramChatId = value
 		}
 
-		telegramChannel.Start(telegramToken, telegramChatId)
+		telegramChannel.Start(cli.AgentCtx, telegramToken, telegramChatId)
 		os.Exit(0)
 	},
 }

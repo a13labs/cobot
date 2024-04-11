@@ -59,6 +59,43 @@ type LLMEmbeddingResponse struct {
 	Embeddings []float64 `json:"embedding"`
 }
 
+type LLMStringResult struct {
+	Result string `json:"result"`
+}
+
+type LLMIntListResult struct {
+	Result []int `json:"result"`
+}
+
+type LLMStringListResult struct {
+	Result []string `json:"result"`
+}
+type LLMBoolResult struct {
+	Result bool `json:"result"`
+}
+
+var llmJSONSystemConstraints = []string{
+	"-Receive instructions.",
+	"-Follow provided rules.",
+	"-Execute instructions.",
+	"-Generate short responses.",
+	"-Generate only what is asked.",
+	"-Write response in raw JSON only.",
+}
+
+var llmJSONUserConstraints = []string{
+	"-One line response.",
+	"-Don't explain results.",
+	"-Don't provide examples.",
+	"-Follow the schema.",
+	"-Generate what is asked.",
+}
+
+func composeJSONSystemInput(schema string) string {
+	constrainsList := strings.Join(llmJSONSystemConstraints, "\n")
+	return fmt.Sprintf("%s\n-Write the response using the JSON schema:'%s'.", constrainsList, schema)
+}
+
 func NewLLMClient(host string, port int, model string) *LLMClient {
 
 	llm := &LLMClient{
@@ -97,7 +134,7 @@ func (llm *LLMClient) HealthCheck() bool {
 	return err == nil
 }
 
-func (llm *LLMClient) SendChatNoStream(messages []LLMChatMessage) (*LLMChatResponseNoStream, error) {
+func (llm *LLMClient) RequestChat(messages []LLMChatMessage) (*LLMChatResponseNoStream, error) {
 
 	url := fmt.Sprintf("http://%s:%d/api/chat", llm.Host, llm.Port)
 
@@ -106,7 +143,7 @@ func (llm *LLMClient) SendChatNoStream(messages []LLMChatMessage) (*LLMChatRespo
 		return nil, err
 	}
 
-	request_body := fmt.Sprintf(`{"model": "%s", "messages": %s, "stream" : false }`, llm.Model, string(requestBodyBytes))
+	request_body := fmt.Sprintf(`{"model": "%s", "messages": %s, "stream" : false, "format" : "json"}`, llm.Model, string(requestBodyBytes))
 
 	resp, err := http.Post(url, "application/json", strings.NewReader(request_body))
 
@@ -130,7 +167,7 @@ func (llm *LLMClient) SendChatNoStream(messages []LLMChatMessage) (*LLMChatRespo
 	return msg, nil
 }
 
-func (llm *LLMClient) SendCompletion(request *LLMCompletionRequest) (*LLMCompletionResponseNoStream, error) {
+func (llm *LLMClient) RequestCompletion(request *LLMCompletionRequest) (*LLMCompletionResponseNoStream, error) {
 
 	url := fmt.Sprintf("http://%s:%d/api/generate", llm.Host, llm.Port)
 
@@ -182,4 +219,91 @@ func (llm *LLMClient) EmbeddingRequest(request *LLMEmbeddingRequest) ([]float64,
 	}
 
 	return msg.Embeddings, nil
+}
+
+func (llm *LLMClient) MessageRequest(instructions string) (string, error) {
+
+	schema := "{\"result\":string}"
+	msg, err := llm.JSONRequest(schema, instructions)
+	if err != nil {
+		return "", err
+	}
+	jsonResult := LLMStringResult{}
+	err = json.Unmarshal([]byte(msg), &jsonResult)
+	if err != nil {
+		return "", nil
+	}
+	return jsonResult.Result, nil
+}
+
+func (llm *LLMClient) IntListRequest(instructions string) ([]int, error) {
+
+	schema := "{\"result\":[int]}"
+	msg, err := llm.JSONRequest(schema, instructions)
+	if err != nil {
+		return nil, err
+	}
+	jsonResult := LLMIntListResult{}
+	err = json.Unmarshal([]byte(msg), &jsonResult)
+	if err != nil {
+		return nil, nil
+	}
+	return jsonResult.Result, nil
+}
+
+func (llm *LLMClient) StringListRequest(instructions string) ([]string, error) {
+
+	schema := "{\"result\":[string]}"
+	msg, err := llm.JSONRequest(schema, instructions)
+	if err != nil {
+		return nil, err
+	}
+	jsonResult := LLMStringListResult{}
+	err = json.Unmarshal([]byte(msg), &jsonResult)
+	if err != nil {
+		return nil, nil
+	}
+	return jsonResult.Result, nil
+}
+
+func (llm *LLMClient) BoolRequest(instructions string) (bool, error) {
+
+	schema := "{\"result\":boolean}"
+	msg, err := llm.JSONRequest(schema, instructions)
+	if err != nil {
+		return false, err
+	}
+	jsonResult := LLMBoolResult{}
+	err = json.Unmarshal([]byte(msg), &jsonResult)
+	if err != nil {
+		return false, nil
+	}
+	return jsonResult.Result, nil
+}
+
+func (llm *LLMClient) JSONRequest(schema string, instructions string) (string, error) {
+	llmMessage, err := llm.RequestChat([]LLMChatMessage{
+		{
+			Role:    "System",
+			Content: composeJSONSystemInput(schema),
+		},
+		{
+			Role:    "User",
+			Content: fmt.Sprintf("Instructions:\n%s", instructions),
+		},
+		{
+			Role:    "User",
+			Content: fmt.Sprintf("Rules:\n%s", strings.Join(llmJSONUserConstraints, "\n")),
+		},
+		{
+			Role:    "User",
+			Content: "Response:",
+		},
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return llmMessage.Message.Content, nil
 }

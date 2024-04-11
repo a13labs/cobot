@@ -12,23 +12,19 @@ import (
 type AgentStartArgs struct {
 	StoragePath  string
 	LogFile      string
-	Language     string
 	MinimumScore float64
 	LLMHost      string
 	LLMPort      int
-	LLLMModel    string
+	LLMModel     string
 }
-
-var agentLoaded = false
 
 var DefaultArgs = AgentStartArgs{
 	StoragePath:  "data",
 	LogFile:      "",
-	Language:     "english",
 	MinimumScore: 0.5,
 	LLMHost:      "localhost",
 	LLMPort:      11434,
-	LLLMModel:    "mistral",
+	LLMModel:     "mistral",
 }
 
 type agentDef struct {
@@ -37,231 +33,224 @@ type agentDef struct {
 	AllowPrivileged bool   `yaml:"allow_privileged"`
 }
 
-type agentConfig struct {
-	Agent         agentDef               `yaml:"agent"`
-	Actions       []string               `yaml:"actions"`
-	KnowledgeBase map[string]interface{} `yaml:"knowledge_base"`
+type AgentConfigFile struct {
+	Agent   agentDef `yaml:"agent"`
+	Actions []string `yaml:"actions"`
 }
 
-var agentStorage *Storage
-var agentActionDB *ActionDB
-var llmClient *nlp.LLMClient
-var llmAgent *LLMAgent
-var agentCfg agentConfig
-var userArgs AgentStartArgs = DefaultArgs
-var writerFunc func(string) error
-var inputChannel chan string
-var outputChannel chan string
+type AgentCtx struct {
+	Storage       *Storage
+	ActionDB      *ActionDB
+	LLMClient     *nlp.LLMClient
+	AgentCfg      AgentConfigFile
+	UserArgs      AgentStartArgs
+	WriterFunc    func(string) error
+	InputChannel  chan string
+	OutputChannel chan string
+}
 
-func Init(args *AgentStartArgs) error {
+func NewAgentCtx(args *AgentStartArgs) (*AgentCtx, error) {
+
+	ctx := &AgentCtx{
+		UserArgs: *args,
+	}
 
 	// Initialize the logger
 	var err error
 	logger, err = NewLogger(args.LogFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set the user arguments
-	userArgs = *args
-	if userArgs.StoragePath == "" {
-		userArgs.StoragePath = DefaultArgs.StoragePath
+	if ctx.UserArgs.StoragePath == "" {
+		ctx.UserArgs.StoragePath = DefaultArgs.StoragePath
 	}
-	if userArgs.Language == "" {
-		userArgs.Language = DefaultArgs.Language
+	if ctx.UserArgs.MinimumScore == 0 {
+		ctx.UserArgs.MinimumScore = DefaultArgs.MinimumScore
 	}
-	if userArgs.MinimumScore == 0 {
-		userArgs.MinimumScore = DefaultArgs.MinimumScore
+	if ctx.UserArgs.LLMHost == "" {
+		ctx.UserArgs.LLMHost = DefaultArgs.LLMHost
 	}
-	if userArgs.LLMHost == "" {
-		userArgs.LLMHost = DefaultArgs.LLMHost
+	if ctx.UserArgs.LLMPort == 0 {
+		ctx.UserArgs.LLMPort = DefaultArgs.LLMPort
 	}
-	if userArgs.LLMPort == 0 {
-		userArgs.LLMPort = DefaultArgs.LLMPort
-	}
-	if userArgs.LLLMModel == "" {
-		userArgs.LLLMModel = DefaultArgs.LLLMModel
+	if ctx.UserArgs.LLMModel == "" {
+		ctx.UserArgs.LLMModel = DefaultArgs.LLMModel
 	}
 
 	// Initialize the storage
-	agentStorage, err = NewStorage(userArgs.StoragePath)
+	ctx.Storage, err = NewStorage(ctx.UserArgs.StoragePath)
 	if err != nil {
-		return errors.New("error initializing storage")
+		return nil, errors.New("error initializing storage")
 	}
 
 	// Load the agent configuration
 	// Check if the local folder has the required structure
 	// If not, create the required structure
-	_, err = agentStorage.Stat("agent-config.yaml")
+	_, err = ctx.Storage.Stat("agent-config.yaml")
 	if err != nil {
 		logger.Info("Agent configuration file not found. Creating a default agent configuration file.")
-		agentCfg := agentConfig{
+		ctx.AgentCfg = AgentConfigFile{
 			Agent: agentDef{
 				Name:            "default",
 				AllowReboot:     false,
 				AllowPrivileged: false,
 			},
-			Actions:       []string{},
-			KnowledgeBase: map[string]interface{}{},
+			Actions: []string{},
 		}
-		agentCfgData, err := yaml.Marshal(agentCfg)
+		agentCfgData, err := yaml.Marshal(ctx.AgentCfg)
 		if err != nil {
 			logger.Error("Error marshalling agent configuration")
-			return errors.New("error marshalling agent configuration")
+			return nil, errors.New("error marshalling agent configuration")
 		}
-		err = agentStorage.WriteFile("agent-config.yaml", agentCfgData, 0644)
+		err = ctx.Storage.WriteFile("agent-config.yaml", agentCfgData, 0644)
 		if err != nil {
 			logger.Error("Error writing agent configuration file")
-			return errors.New("error writing agent configuration file")
+			return nil, errors.New("error writing agent configuration file")
 		}
 	} else {
 		logger.Info("Loading agent configuration from storage")
 
 		// Load the agent configuration file
-		agentCfgData, err := agentStorage.ReadFile("agent-config.yaml")
+		agentCfgData, err := ctx.Storage.ReadFile("agent-config.yaml")
 		if err != nil {
 			logger.Error("Error reading agent configuration file")
-			return errors.New("error reading agent configuration file")
+			return nil, errors.New("error reading agent configuration file")
 		}
 
 		// Unmarshal the agent configuration file
-		if err := yaml.Unmarshal(agentCfgData, &agentCfg); err != nil {
+		if err := yaml.Unmarshal(agentCfgData, &ctx.AgentCfg); err != nil {
 			logger.Error("Error parsing agent configuration file")
-			return errors.New("error parsing agent configuration file")
+			return nil, errors.New("error parsing agent configuration file")
 		}
 
 		// Check if the agent configuration file has the required fields
-		if agentCfg.Agent.Name == "" {
+		if ctx.AgentCfg.Agent.Name == "" {
 			logger.Error("Agent name is empty")
-			return errors.New("agent name is empty")
+			return nil, errors.New("agent name is empty")
 		}
 
 	}
 
 	// Initialize the LLM client
-	llmClient = nlp.NewLLMClient(userArgs.LLMHost, userArgs.LLMPort, userArgs.LLLMModel)
-	if llmClient == nil {
-		return errors.New("error initializing LLM client")
+	ctx.LLMClient = nlp.NewLLMClient(ctx.UserArgs.LLMHost, ctx.UserArgs.LLMPort, ctx.UserArgs.LLMModel)
+	if ctx.LLMClient == nil {
+		return nil, errors.New("error initializing LLM client")
 	}
 
 	// Initialize the action database
-	agentActionDB, err = NewActionDB(algo.StringList(agentCfg.Actions), agentStorage, llmClient, userArgs.Language)
+	ctx.ActionDB, err = NewActionDB(algo.StringList(ctx.AgentCfg.Actions), ctx.Storage, ctx.LLMClient)
 	if err != nil {
-		return errors.New("error initializing action database")
+		return nil, errors.New("error initializing action database")
 	}
 
-	err = agentActionDB.CacheInit()
-	if err != nil {
-		return errors.New("error building action database index")
-	}
-
-	writerFunc = func(msg string) error {
+	ctx.WriterFunc = func(msg string) error {
 		return nil
 	}
 
-	inputChannel = make(chan string)
-	outputChannel = make(chan string)
+	ctx.InputChannel = make(chan string)
+	ctx.OutputChannel = make(chan string)
 
-	go processInput()
-	go processOutput()
+	go ctx.processInput()
+	go ctx.processOutput()
 
-	llmAgent = NewLLMAgent(llmClient, agentCfg.Agent.Name)
-
-	agentLoaded = true
-	return nil
+	return ctx, nil
 }
 
-func SetWriterFunc(f func(string) error) {
-	writerFunc = f
+func (ctx *AgentCtx) SetWriterFunc(f func(string) error) {
+	ctx.WriterFunc = f
 }
 
-func processInput() {
+func (ctx *AgentCtx) processInput() {
 
-	for msg := range inputChannel {
+	for msg := range ctx.InputChannel {
 		if msg == "exit" {
 			break
 		}
-		process(msg)
+		ctx.process(msg)
 	}
 
 }
 
-func processOutput() {
-	for msg := range outputChannel {
+func (ctx *AgentCtx) processOutput() {
+	for msg := range ctx.OutputChannel {
 		if msg == "exit" {
 			break
 		}
-		writerFunc(msg)
+		ctx.WriterFunc(msg)
 	}
 }
 
-func process(userInput string) {
+func (ctx *AgentCtx) process(userInput string) {
 
-	actions, err := parseActions(userInput)
+	isQuestion, err := isItAQuestion(ctx, userInput)
 	if err != nil {
 		logger.Error("Error parsing user input: %s", err)
 		return
 	}
 
-	if len(actions) == 0 {
-		Inform("No actions match the user input in the knowledge base. No action will be taken.")
+	if isQuestion {
+		ctx.Inform("Currently questions are not handled, only commands. No action will be taken.")
 		return
 	}
 
-	for _, action := range actions {
-		logger.Info("Action: %s", agentActionDB.ActionNames[action])
+	validAction, err := isItemInList(ctx, userInput, ctx.ActionDB.GetActionDescriptions())
+	if err != nil {
+		logger.Error("Error parsing user input: %s", err)
+		return
+	}
+	if validAction {
+
+		actions, err := filterListItems(ctx, userInput, ctx.ActionDB.GetActionDescriptions())
+		if err != nil {
+			logger.Error("Error parsing user input: %s", err)
+			return
+		}
+
+		if len(actions) == 0 {
+			ctx.Inform("No actions were found. No action will be taken.")
+			return
+		}
+
+		for _, action := range actions {
+			logger.Info("Action: %s", ctx.ActionDB.ActionNames[action])
+		}
+	} else {
+		ctx.Inform("No actions were found. No action will be taken.")
 	}
 }
 
-func DispatchInput(userInput string) {
-	inputChannel <- userInput
+func (ctx *AgentCtx) DispatchInput(userInput string) {
+	ctx.InputChannel <- userInput
 }
 
-func GetAgentName() string {
-	return agentCfg.Agent.Name
+func (ctx *AgentCtx) GetAgentName() string {
+	return ctx.AgentCfg.Agent.Name
 }
 
-func GetLanguage() string {
-	return userArgs.Language
-}
-
-func SayHello() {
-	msg, err := llmAgent.MessageRequest("Inform the user with your name and greet.")
+func (ctx *AgentCtx) SayHello() {
+	prompt := fmt.Sprintf("Your name is '%s'.Inform the user you are ready to receive orders and greet him.", ctx.AgentCfg.Agent.Name)
+	msg, err := generateAMessage(ctx, prompt)
 	if err != nil {
 		return
 	}
-	outputChannel <- msg
+	ctx.OutputChannel <- msg
 }
 
-func SayGoodBye() (string, error) {
-	msg, err := llmAgent.MessageRequest("Inform the user you are shutting down and say goodbye.")
+func (ctx *AgentCtx) SayGoodBye() (string, error) {
+	msg, err := generateAMessage(ctx, "Inform the user you are shutting down and say goodbye.")
 	if err != nil {
-		outputChannel <- "error interacting with LLM"
+		ctx.OutputChannel <- "error interacting with LLM"
 	}
 	return msg, nil
 }
 
-func Inform(text string) {
-	prompt := fmt.Sprintf("Inform the user of the following: '%s'", text)
-	msg, err := llmAgent.MessageRequest(prompt)
+func (ctx *AgentCtx) Inform(text string) {
+	prompt := fmt.Sprintf("You are polite,inform the user,using your words,of the following event:'%s'.", text)
+	msg, err := generateAMessage(ctx, prompt)
 	if err != nil {
-		outputChannel <- "error interacting with LLM"
+		ctx.OutputChannel <- "error interacting with LLM"
 	}
-	outputChannel <- msg
-}
-
-func parseActions(prompt string) ([]int, error) {
-
-	availableActions := "Available actions:\n"
-	for i, name := range agentActionDB.ActionNames {
-		action := agentActionDB.Actions[name]
-		availableActions += fmt.Sprintf("- ID: %d, Description: '%s'\n", i, action.Description)
-	}
-	instr := fmt.Sprintf("Consider the following action list:\n%s\nUser Input: %s\nParse the user input, provide the ID of all actions that match. Provide empty list if no action match.", availableActions, prompt)
-
-	msg, err := llmAgent.IntListRequest(instr)
-	if err != nil {
-		return nil, err
-	}
-	return msg, nil
+	ctx.OutputChannel <- msg
 }

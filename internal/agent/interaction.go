@@ -1,89 +1,57 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/a13labs/cobot/internal/nlp"
 )
 
-type InteractionMessages struct {
-	Context string
-	Content string
-	Type    int
-}
-
-type LLMAgent struct {
-	LLMClient   *nlp.LLMClient
-	SystemInput string
-}
-
-type LLMStringResult struct {
-	Result string `json:"result"`
-}
-
-type LLMIntListResult struct {
-	Result []int `json:"result"`
-}
-
-func NewLLMAgent(llmClient *nlp.LLMClient, agentName string) *LLMAgent {
-	return &LLMAgent{
-		LLMClient:   llmClient,
-		SystemInput: fmt.Sprintf("You are %s, a machine acting as a layer between a system and a user. You recieve instructions. You generate short messages. The messages are to the point. One line only. The output is in JSON format.", agentName),
-	}
-}
-
-func (i *LLMAgent) MessageRequest(instruction string) (string, error) {
-
-	llmMessage, err := i.LLMClient.SendChatNoStream([]nlp.LLMChatMessage{
-		{
-			Role:    "System",
-			Content: fmt.Sprintf("%s Format: { \"result\" : \"\" }.", i.SystemInput),
-		},
-		{
-			Role:    "User",
-			Content: instruction,
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	jsonResult := LLMStringResult{}
-	err = json.Unmarshal([]byte(llmMessage.Message.Content), &jsonResult)
-	if err != nil {
-		return "", nil
-	}
-	return jsonResult.Result, nil
-}
-
-func (i *LLMAgent) IntListRequest(instruction string) ([]int, error) {
-
-	llmMessage, err := i.LLMClient.SendChatNoStream([]nlp.LLMChatMessage{
-		{
-			Role:    "System",
-			Content: fmt.Sprintf("%s Format: { \"result\" : [] }.", i.SystemInput),
-		},
-		{
-			Role:    "User",
-			Content: instruction,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	jsonResult := LLMIntListResult{}
-	err = json.Unmarshal([]byte(llmMessage.Message.Content), &jsonResult)
-	if err != nil {
-		return nil, nil
-	}
-	return jsonResult.Result, nil
-}
-
-func (i *LLMAgent) Embeddings(text string) ([]float64, error) {
-	embeddings, err := i.LLMClient.EmbeddingRequest(&nlp.LLMEmbeddingRequest{Prompt: text})
+func getEmbeddings(ctx *AgentCtx, text string) ([]float64, error) {
+	embeddings, err := ctx.LLMClient.EmbeddingRequest(&nlp.LLMEmbeddingRequest{Prompt: text})
 	if err != nil {
 		return nil, err
 	}
 
 	return embeddings, nil
+}
+
+func isItemInList(ctx *AgentCtx, prompt string, items []string) (bool, error) {
+	list := ""
+	for _, item := range items {
+		list += fmt.Sprintf("-'%s'\n", item)
+	}
+	instr := fmt.Sprintf("Given list:\n%s\nGiven input:'%s'\n.Any item in the given list similar or related to the given input? true or false?", list, prompt)
+	msg, err := ctx.LLMClient.BoolRequest(instr)
+	if err != nil {
+		return false, err
+	}
+	return msg, nil
+}
+
+func filterListItems(ctx *AgentCtx, prompt string, items []string) ([]int, error) {
+	list := ""
+	for i, item := range items {
+		list += fmt.Sprintf("-ID:%d,Text:'%s'\n", i, item)
+	}
+	instr := fmt.Sprintf("Given list:\n%s\nGiven input:'%s'\n.List all items of the given list which the text is similar or related to what is requested in the given input.Write the IDs of all matched items.", list, prompt)
+	msg, err := ctx.LLMClient.IntListRequest(instr)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+func isItAQuestion(ctx *AgentCtx, prompt string) (bool, error) {
+
+	instr := fmt.Sprintf("Given input:'%s'\n.'true' if it is a question, 'false' if not.", prompt)
+
+	msg, err := ctx.LLMClient.BoolRequest(instr)
+	if err != nil {
+		return false, err
+	}
+	return msg, nil
+}
+
+func generateAMessage(ctx *AgentCtx, prompt string) (string, error) {
+	return ctx.LLMClient.MessageRequest(prompt)
 }

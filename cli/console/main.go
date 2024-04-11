@@ -32,11 +32,11 @@ import (
 // telegramCmd represents the list command
 var consoleCmd = &cobra.Command{
 	Use:   "console",
-	Short: "Recieve input from user argument",
-	Long:  `Recieve all commands from argument.`,
+	Short: "Receive input from user argument",
+	Long:  `Receive all commands from argument.`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		consoleChannel.Start()
+		consoleChannel.Start(cli.AgentCtx)
 		os.Exit(0)
 	},
 }

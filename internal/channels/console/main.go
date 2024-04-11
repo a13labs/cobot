@@ -28,20 +28,20 @@ func forEachInput(r io.Reader, callback func(text string) error) error {
 }
 
 // StartBot initializes and starts the bot with a channel listener.
-func Start() {
+func Start(ctx *agent.AgentCtx) {
 
-	agent.SetWriterFunc(func(text string) error { fmt.Println(text); return nil })
+	ctx.SetWriterFunc(func(text string) error { fmt.Println(text); return nil })
 
 	fn := func(userInput string) error {
-		agent.DispatchInput(userInput)
+		ctx.DispatchInput(userInput)
 		return nil
 	}
 
-	agent.SayHello()
+	ctx.SayHello()
 	err := forEachInput(os.Stdin, fn)
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
-	agent.SayGoodBye()
+	ctx.SayGoodBye()
 }

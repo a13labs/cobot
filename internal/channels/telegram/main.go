@@ -14,7 +14,7 @@ import (
 var shutdownSignal = make(chan os.Signal, 1)
 
 // StartBot initializes and starts the Telegram bot with a channel listener.
-func Start(token string, chatId int64) {
+func Start(ctx *agent.AgentCtx, token string, chatId int64) {
 
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
@@ -35,14 +35,14 @@ func Start(token string, chatId int64) {
 	signal.Notify(shutdownSignal, syscall.SIGQUIT)
 	signal.Notify(shutdownSignal, syscall.SIGINT)
 
-	agent.SetWriterFunc(func(text string) error {
+	ctx.SetWriterFunc(func(text string) error {
 		msg := tgbotapi.NewMessage(chatId, text)
 		bot.Send(msg)
 		return nil
 	})
 
 	// Send a welcome message
-	agent.SayHello()
+	ctx.SayHello()
 
 	// Listen for messages in the channel
 	for {
@@ -67,9 +67,9 @@ func Start(token string, chatId int64) {
 
 					if len(runes) > 0 {
 						targetAgent := string(runes[1:])
-						if targetAgent == agent.GetAgentName() {
+						if targetAgent == ctx.GetAgentName() {
 							if len(tokens) > 1 {
-								agent.DispatchInput(userInput)
+								ctx.DispatchInput(userInput)
 							}
 						}
 					}
@@ -77,7 +77,7 @@ func Start(token string, chatId int64) {
 			}
 		case <-shutdownSignal:
 			// Send a goodbye message
-			goodbyeMsg, err := agent.SayGoodBye()
+			goodbyeMsg, err := ctx.SayGoodBye()
 			if err != nil {
 				log.Fatal(err)
 				os.Exit(1)
